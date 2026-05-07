@@ -72,7 +72,7 @@ async def require_manage_roles(user = Depends(verify_user), db: AsyncSession = D
     if user.get("is_local_token"): raise HTTPException(403, "Access denied for local tokens")
     user_id = get_user_id(user)
     res = await db.execute(text("""SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id 
-                 WHERE ug.user_id = :uid AND g.is_deleted = 0 AND (g.is_superadmin = 1 OR g.can_manage_roles = 1)"""), {"uid": user_id})
+                 WHERE ug.user_id = :uid AND g.is_deleted = False AND (g.is_superadmin = True OR g.can_manage_roles = True)"""), {"uid": user_id})
     if not res.fetchone(): raise HTTPException(403, "Insufficient permissions to manage roles and access")
     return user
 
@@ -80,7 +80,7 @@ async def require_manage_users(user = Depends(verify_user), db: AsyncSession = D
     if user.get("is_local_token"): raise HTTPException(403, "Access denied for local tokens")
     user_id = get_user_id(user)
     res = await db.execute(text("""SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id 
-                 WHERE ug.user_id = :uid AND g.is_deleted = 0 AND (g.is_superadmin = 1 OR g.can_manage_users = 1)"""), {"uid": user_id})
+                 WHERE ug.user_id = :uid AND g.is_deleted = False AND (g.is_superadmin = True OR g.can_manage_users = True)"""), {"uid": user_id})
     if not res.fetchone(): raise HTTPException(403, "Insufficient permissions to manage roles and access")
     return user
 
@@ -88,7 +88,7 @@ async def require_manage_settings(user = Depends(verify_user), db: AsyncSession 
     if user.get("is_local_token"): raise HTTPException(403, "Access denied for local tokens")
     user_id = get_user_id(user)
     res = await db.execute(text("""SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id 
-                 WHERE ug.user_id = :uid AND g.is_deleted = 0 AND (g.is_superadmin = 1 OR g.can_manage_settings = 1)"""), {"uid": user_id})
+                 WHERE ug.user_id = :uid AND g.is_deleted = False AND (g.is_superadmin = True OR g.can_manage_settings = True)"""), {"uid": user_id})
     if not res.fetchone(): raise HTTPException(403, "Insufficient permissions to manage settings")
     return user
 
@@ -96,7 +96,7 @@ async def require_read_log(user = Depends(verify_user), db: AsyncSession = Depen
     if user.get("is_local_token"): raise HTTPException(403, "Access denied for local tokens")
     user_id = get_user_id(user)
     res = await db.execute(text("""SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id 
-                 WHERE ug.user_id = :uid AND g.is_deleted = 0 AND (g.is_superadmin = 1 OR g.can_read_log = 1)"""), {"uid": user_id})
+                 WHERE ug.user_id = :uid AND g.is_deleted = False AND (g.is_superadmin = True OR g.can_read_log = True)"""), {"uid": user_id})
     if not res.fetchone(): raise HTTPException(403, "Insufficient permissions to read event logs")
     return user
 
@@ -104,7 +104,7 @@ async def require_superadmin(user = Depends(verify_user), db: AsyncSession = Dep
     if user.get("is_local_token"): raise HTTPException(403, "Access denied for local tokens")
     user_id = get_user_id(user)
     res = await db.execute(text("""SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id 
-                 WHERE ug.user_id = :uid AND g.is_deleted = 0 AND g.is_superadmin = 1"""), {"uid": user_id})
+                 WHERE ug.user_id = :uid AND g.is_deleted = False AND g.is_superadmin = True"""), {"uid": user_id})
     if not res.fetchone(): raise HTTPException(403, "Super-Admin privileges required")
     return user
 

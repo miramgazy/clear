@@ -92,7 +92,7 @@ async def get_my_rights(user = Depends(verify_user), db: AsyncSession = Depends(
         return r
 
     res = await db.execute(text("""SELECT g.is_superadmin, g.can_add, g.can_edit, g.can_delete, g.can_save_local, g.can_manage_users, g.can_read_log, g.can_manage_roles, g.can_manage_settings 
-                 FROM groups g JOIN usergroups ug ON g.id = ug.group_id WHERE ug.user_id = :user_id AND g.is_deleted = 0"""), {"user_id": user_id})
+                 FROM groups g JOIN usergroups ug ON g.id = ug.group_id WHERE ug.user_id = :user_id AND g.is_deleted = False"""), {"user_id": user_id})
     rows = res.fetchall()
     
     if rows:
@@ -157,7 +157,7 @@ async def get_accessible_ids(user = Depends(verify_user), db: AsyncSession = Dep
     row = res.fetchone()
     if not row or not row[0]: return []
 
-    res = await db.execute(text("SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id WHERE ug.user_id = :user_id AND g.is_superadmin = 1 AND g.is_deleted = 0"), {"user_id": user_id})
+    res = await db.execute(text("SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id WHERE ug.user_id = :user_id AND g.is_superadmin = True AND g.is_deleted = False"), {"user_id": user_id})
     is_super = res.fetchone() is not None
 
     if is_super:
@@ -167,11 +167,11 @@ async def get_accessible_ids(user = Depends(verify_user), db: AsyncSession = Dep
         WITH RECURSIVE
         EntityAccess AS (
             SELECT e.id, e.folder_id,
-                CASE WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN 1 ELSE 0 END AS HasRestrict,
+                CASE WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN True ELSE False END AS HasRestrict,
                 CASE 
-                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = 0) THEN 0
-                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = 0) THEN 1 
-                    ELSE 0 
+                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = False) THEN False
+                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = False) THEN True 
+                    ELSE False 
                 END AS HasAccess
             FROM entities e
             WHERE e.folder_id = '' OR e.folder_id IS NULL OR NOT EXISTS (SELECT 1 FROM entities p WHERE p.id = e.folder_id)
@@ -179,7 +179,7 @@ async def get_accessible_ids(user = Depends(verify_user), db: AsyncSession = Dep
             UNION ALL
 
             SELECT e.id, e.folder_id,
-                CASE WHEN ea.HasRestrict = 1 OR EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN 1 ELSE 0 END,
+                CASE WHEN ea.HasRestrict = True OR EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN True ELSE False END,
                 CASE
                     WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN
                         CASE 
@@ -212,7 +212,7 @@ async def pull_data(since_revision: int = 0, request: Request = None, user = Dep
     row = res.fetchone()
     if not row or not row[0]: return []
 
-    res = await db.execute(text("SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id WHERE ug.user_id = :user_id AND g.is_superadmin = 1 AND g.is_deleted = 0"), {"user_id": user_id})
+    res = await db.execute(text("SELECT 1 FROM groups g JOIN usergroups ug ON g.id = ug.group_id WHERE ug.user_id = :user_id AND g.is_superadmin = True AND g.is_deleted = False"), {"user_id": user_id})
     is_super = res.fetchone() is not None
 
     if is_super:
@@ -222,11 +222,11 @@ async def pull_data(since_revision: int = 0, request: Request = None, user = Dep
         WITH RECURSIVE
         EntityAccess AS (
             SELECT e.id, e.folder_id,
-                CASE WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN 1 ELSE 0 END AS HasRestrict,
+                CASE WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN True ELSE False END AS HasRestrict,
                 CASE 
-                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = 0) THEN 0
-                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = 0) THEN 1 
-                    ELSE 0 
+                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = False) THEN False
+                    WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = False) THEN True 
+                    ELSE False 
                 END AS HasAccess
             FROM entities e
             WHERE e.folder_id = '' OR e.folder_id IS NULL OR NOT EXISTS (SELECT 1 FROM entities p WHERE p.id = e.folder_id)
@@ -234,7 +234,7 @@ async def pull_data(since_revision: int = 0, request: Request = None, user = Dep
             UNION ALL
 
             SELECT e.id, e.folder_id,
-                CASE WHEN ea.HasRestrict = 1 OR EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN 1 ELSE 0 END,
+                CASE WHEN ea.HasRestrict = True OR EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN True ELSE False END,
                 CASE
                     WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN
                         CASE 

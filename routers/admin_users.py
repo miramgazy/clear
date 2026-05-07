@@ -21,7 +21,7 @@ async def get_all_users(user = Depends(require_manage_users), db: AsyncSession =
                 SELECT u.id, u.username, u.email, u.last_connect, ug.group_id, u.is_active 
                 FROM users u 
                 LEFT JOIN usergroups ug ON u.id = ug.user_id 
-                WHERE u.is_approved = 1 ORDER BY u.last_connect DESC
+                WHERE u.is_approved = True ORDER BY u.last_connect DESC
             """))
             rows = res.fetchall()
             
@@ -62,7 +62,7 @@ async def get_pending_users(user = Depends(require_manage_users), db: AsyncSessi
     cached_pending = pending_cache.get("all")
     if cached_pending: return cached_pending
 
-    res = await db.execute(text("SELECT id, username, email, first_connect FROM users WHERE is_approved = 0 ORDER BY first_connect DESC"))
+    res = await db.execute(text("SELECT id, username, email, first_connect FROM users WHERE is_approved = False ORDER BY first_connect DESC"))
     rows = res.fetchall()
     result = [{"id": r[0], "username": r[1], "email": r[2], "first_connect": r[3].strftime("%Y-%m-%d %H:%M:%S") if r[3] else None} for r in rows]
     
