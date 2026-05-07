@@ -1,4 +1,5 @@
-import aiosqlite
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 import asyncio
 
 audit_lock = asyncio.Lock()
@@ -11,10 +12,10 @@ def get_user_id(user: dict):
     if email: return email
     return "UnknownUser"
 
-async def log_event(db: aiosqlite.Connection, event_type: str, user: dict, ip: str, details: str):
+async def log_event(db: AsyncSession, event_type: str, user: dict, ip: str, details: str):
     async with audit_lock:
-        c = await db.cursor()
         username = user.get("username", "Unknown")
         email = user.get("email", "")
-        await c.execute("INSERT INTO AuditLog (EventType, Username, Email, IpAddress, Details) VALUES (?, ?, ?, ?, ?)", (event_type, username, email, ip, details))
+        await db.execute(text("INSERT INTO auditlog (event_type, username, email, ip_address, details) VALUES (:et, :un, :em, :ip, :dt)"), 
+                       {"et": event_type, "un": username, "em": email, "ip": ip, "dt": details})
         await db.commit()

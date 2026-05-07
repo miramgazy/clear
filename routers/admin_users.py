@@ -1,4 +1,5 @@
-import aiosqlite
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 from dependencies import increment_admin_revision, require_manage_users, require_manage_roles
 from ws_router import manager
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -6,39 +7,37 @@ from cache import auth_cache, rights_cache, accessible_ids_cache, users_cache, p
 from database import get_db
 from utils import log_event, get_user_id
 from models import UserGroupUpdate
-from ws_router import manager
 from datetime import datetime
 
 router = APIRouter(prefix="/admin", tags=["Admin Users"])
 
 @router.get("/users")
-async def get_all_users(user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
+async def get_all_users(user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
     cached_users = users_cache.get("all")
     
     if not cached_users:
-        c = await db.cursor()
         try:
-            await c.execute("""
-                SELECT u.Id, u.Username, u.Email, u.LastConnect, ug.GroupId, u.IsActive 
-                FROM Users u 
-                LEFT JOIN UserGroups ug ON u.Id = ug.UserId 
-                WHERE u.IsApproved = 1 ORDER BY u.LastConnect DESC
-            """)
-            rows = await c.fetchall()
+            res = await db.execute(text("""
+                SELECT u.id, u.username, u.email, u.last_connect, ug.group_id, u.is_active 
+                FROM users u 
+                LEFT JOIN usergroups ug ON u.id = ug.user_id 
+                WHERE u.is_approved = 1 ORDER BY u.last_connect DESC
+            """))
+            rows = res.fetchall()
             
             cached_users = [{
                 "id": r[0], 
                 "username": r[1], 
                 "email": r[2], 
-                "last_connect": r[3], 
+                "last_connect": r[3].strftime("%Y-%m-%d %H:%M:%S") if r[3] else None, 
                 "group_id": r[4] if r[4] else "", 
-                "is_active": bool(r[5] if r[5] is not None else 1)
+                "is_active": r[5] if r[5] is not None else True
             } for r in rows]
             
             users_cache.set("all", cached_users)
             
         except Exception as e:
-            print(f"Ошибка БД при получении пользователей: {e}")
+            print(f"Database error while fetching users: {e}")
             return []
 
     result = []
@@ -59,33 +58,31 @@ async def get_all_users(user = Depends(require_manage_users), db: aiosqlite.Conn
     return result
 
 @router.get("/pending_users")
-async def get_pending_users(user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
+async def get_pending_users(user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
     cached_pending = pending_cache.get("all")
     if cached_pending: return cached_pending
 
-    c = await db.cursor()
-    await c.execute("SELECT Id, Username, Email, FirstConnect FROM Users WHERE IsApproved = 0 ORDER BY FirstConnect DESC")
-    rows = await c.fetchall()
-    result = [{"id": r[0], "username": r[1], "email": r[2], "first_connect": r[3]} for r in rows]
+    res = await db.execute(text("SELECT id, username, email, first_connect FROM users WHERE is_approved = 0 ORDER BY first_connect DESC"))
+    rows = res.fetchall()
+    result = [{"id": r[0], "username": r[1], "email": r[2], "first_connect": r[3].strftime("%Y-%m-%d %H:%M:%S") if r[3] else None} for r in rows]
     
     pending_cache.set("all", result)
     return result
 
 @router.post("/pending_users/{target_user_id}/approve")
-async def approve_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
-    c = await db.cursor()
-    await c.execute("UPDATE Users SET IsApproved = 1, IsActive = 1 WHERE Id = ?", (target_user_id,))
+async def approve_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
+    await db.execute(text("UPDATE users SET is_approved = True, is_active = True WHERE id = :id"), {"id": target_user_id})
     
-    await c.execute("SELECT Value FROM ServerSettings WHERE Key = 'DefaultGroupId'")
-    def_grp = await c.fetchone()
+    res = await db.execute(text("SELECT value FROM serversettings WHERE key = 'DefaultGroupId'"))
+    def_grp = res.fetchone()
     if def_grp and def_grp[0]:
-        await c.execute("INSERT OR IGNORE INTO UserGroups (UserId, GroupId) VALUES (?, ?)", (target_user_id, def_grp[0]))
+        await db.execute(text("INSERT INTO usergroups (user_id, group_id) VALUES (:uid, :gid) ON CONFLICT DO NOTHING"), {"uid": target_user_id, "gid": def_grp[0]})
     await db.commit()
     
     new_admin_rev = await increment_admin_revision(db)
     await manager.broadcast({"event": "admin_revision", "revision": new_admin_rev})
 
-    await log_event(db, "Изменение прав", user, request.client.host, f"Одобрена заявка пользователя {target_user_id}")
+    await log_event(db, "Rights change", user, request.client.host, f"Approved request for user {target_user_id}")
     
     auth_cache.clear()
     rights_cache.clear()
@@ -95,9 +92,8 @@ async def approve_user(target_user_id: str, request: Request, user = Depends(req
     return {"status": "ok"}
 
 @router.delete("/pending_users/{target_user_id}")
-async def reject_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
-    c = await db.cursor()
-    await c.execute("UPDATE Users SET IsActive = 0 WHERE Id = ?", (target_user_id,))
+async def reject_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
+    await db.execute(text("UPDATE users SET is_active = False WHERE id = :id"), {"id": target_user_id})
     await db.commit()
     
     new_admin_rev = await increment_admin_revision(db)
@@ -111,9 +107,8 @@ async def reject_user(target_user_id: str, request: Request, user = Depends(requ
     return {"status": "ok"}
 
 @router.post("/pending_users/{target_user_id}/restore")
-async def restore_pending_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
-    c = await db.cursor()
-    await c.execute("UPDATE Users SET IsActive = 1 WHERE Id = ?", (target_user_id,))
+async def restore_pending_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
+    await db.execute(text("UPDATE users SET is_active = True WHERE id = :id"), {"id": target_user_id})
     await db.commit()
     
     new_admin_rev = await increment_admin_revision(db)
@@ -127,21 +122,19 @@ async def restore_pending_user(target_user_id: str, request: Request, user = Dep
     return {"status": "ok"}
 
 @router.put("/users/{target_user_id}/group")
-async def set_user_group(target_user_id: str, req: UserGroupUpdate, request: Request, user = Depends(require_manage_roles), db: aiosqlite.Connection = Depends(get_db)):
-    c = await db.cursor()
-    
+async def set_user_group(target_user_id: str, req: UserGroupUpdate, request: Request, user = Depends(require_manage_roles), db: AsyncSession = Depends(get_db)):
     if not req.group_id:
-        await c.execute("DELETE FROM UserGroups WHERE UserId = ?", (target_user_id,))
+        await db.execute(text("DELETE FROM usergroups WHERE user_id = :uid"), {"uid": target_user_id})
     else:
-        await c.execute("DELETE FROM UserGroups WHERE UserId = ?", (target_user_id,))
-        await c.execute("INSERT INTO UserGroups (UserId, GroupId) VALUES (?, ?)", (target_user_id, req.group_id))
+        await db.execute(text("DELETE FROM usergroups WHERE user_id = :uid"), {"uid": target_user_id})
+        await db.execute(text("INSERT INTO usergroups (user_id, group_id) VALUES (:uid, :gid)"), {"uid": target_user_id, "gid": req.group_id})
         
     await db.commit()
     
     new_admin_rev = await increment_admin_revision(db)
     await manager.broadcast({"event": "admin_revision", "revision": new_admin_rev})
 
-    await log_event(db, "Изменение прав", user, request.client.host, f"Изменена группа доступа пользователя {target_user_id}")
+    await log_event(db, "Rights change", user, request.client.host, f"Changed group for user {target_user_id}")
     
     groups_cache.clear()
     rights_cache.clear()
@@ -151,14 +144,12 @@ async def set_user_group(target_user_id: str, req: UserGroupUpdate, request: Req
     return {"status": "ok"}
 
 @router.delete("/users/{target_user_id}")
-async def ban_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
-    c = await db.cursor()
-
-    await c.execute("UPDATE Users SET IsActive = 0 WHERE Id = ?", (target_user_id,))
+async def ban_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
+    await db.execute(text("UPDATE users SET is_active = False WHERE id = :uid"), {"uid": target_user_id})
     
     if target_user_id.startswith("local_token_"):
         token_id = target_user_id.replace("local_token_", "")
-        await c.execute("UPDATE LocalTokens SET IsActive = 0 WHERE Id = ?", (token_id,))
+        await db.execute(text("UPDATE localtokens SET is_active = False WHERE id = :tid"), {"tid": token_id})
         users_cache.clear() 
     
     await db.commit()
@@ -166,7 +157,7 @@ async def ban_user(target_user_id: str, request: Request, user = Depends(require
     new_admin_rev = await increment_admin_revision(db)
     await manager.broadcast({"event": "admin_revision", "revision": new_admin_rev})
 
-    await log_event(db, "Изменение прав", user, request.client.host, f"Учетная запись отключена: {target_user_id}")
+    await log_event(db, "Rights change", user, request.client.host, f"Account disabled: {target_user_id}")
     
     auth_cache.clear()
     rights_cache.clear()
@@ -176,15 +167,14 @@ async def ban_user(target_user_id: str, request: Request, user = Depends(require
     return {"status": "ok"}
 
 @router.post("/users/{target_user_id}/restore")
-async def restore_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: aiosqlite.Connection = Depends(get_db)):
-    c = await db.cursor()
-    await c.execute("UPDATE Users SET IsActive = 1 WHERE Id = ?", (target_user_id,))
+async def restore_user(target_user_id: str, request: Request, user = Depends(require_manage_users), db: AsyncSession = Depends(get_db)):
+    await db.execute(text("UPDATE users SET is_active = True WHERE id = :uid"), {"uid": target_user_id})
     await db.commit()
     
     new_admin_rev = await increment_admin_revision(db)
     await manager.broadcast({"event": "admin_revision", "revision": new_admin_rev})
 
-    await log_event(db, "Изменение прав", user, request.client.host, f"Учетная запись восстановлена: {target_user_id}")
+    await log_event(db, "Rights change", user, request.client.host, f"Account restored: {target_user_id}")
     
     auth_cache.clear()
     rights_cache.clear()
