@@ -183,8 +183,8 @@ async def get_accessible_ids(user = Depends(verify_user), db: AsyncSession = Dep
                 CASE
                     WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN
                         CASE 
-                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = 0) THEN 0
-                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = 0) THEN 1 
+                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = False) THEN False
+                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = False) THEN True 
                             ELSE ea.HasAccess 
                         END
                     ELSE ea.HasAccess
@@ -238,8 +238,8 @@ async def pull_data(since_revision: int = 0, request: Request = None, user = Dep
                 CASE
                     WHEN EXISTS (SELECT 1 FROM entitypermissions WHERE entity_id = e.id) THEN
                         CASE 
-                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = 0) THEN 0
-                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = 0) THEN 1 
+                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level = 'none' AND g.is_deleted = False) THEN False
+                            WHEN EXISTS (SELECT 1 FROM entitypermissions ep JOIN usergroups ug ON ep.group_id = ug.group_id JOIN groups g ON g.id = ug.group_id WHERE ep.entity_id = e.id AND ug.user_id = :user_id AND ep.access_level IN ('read', 'write') AND g.is_deleted = False) THEN True 
                             ELSE ea.HasAccess 
                         END
                     ELSE ea.HasAccess
