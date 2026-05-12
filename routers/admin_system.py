@@ -27,7 +27,7 @@ async def get_tokens(user = Depends(require_manage_settings), db: AsyncSession =
         "description": r[1], 
         "expires_at": r[2].strftime("%Y-%m-%d %H:%M:%S") if r[2] else None, 
         "created_at": r[3].strftime("%Y-%m-%d %H:%M:%S") if r[3] else None, 
-        "is_active": r[4]
+        "is_active": r[4] if r[4] is not None else True
     } for r in rows]
     
     tokens_cache.set("all", result)
@@ -40,14 +40,14 @@ async def create_token(req: LocalTokenReq, request: Request, user = Depends(requ
     token_id = secrets.token_hex(8)
     
     if req.days_valid:
-        await db.execute(text(f"INSERT INTO localtokens (id, token_hash, description, expires_at) VALUES (:id, :hash, :desc, now() + interval '{req.days_valid} days')"), 
+        await db.execute(text(f"INSERT INTO localtokens (id, token_hash, description, expires_at, is_active) VALUES (:id, :hash, :desc, now() + interval '{req.days_valid} days', True)"), 
                        {"id": token_id, "hash": token_hash, "desc": req.description})
     else:
-        await db.execute(text("INSERT INTO localtokens (id, token_hash, description, expires_at) VALUES (:id, :hash, :desc, NULL)"), 
+        await db.execute(text("INSERT INTO localtokens (id, token_hash, description, expires_at, is_active) VALUES (:id, :hash, :desc, NULL, True)"), 
                        {"id": token_id, "hash": token_hash, "desc": req.description})
     
     token_user_id = f"local_token_{token_id}"
-    await db.execute(text("INSERT INTO users (id, username, email, is_approved) VALUES (:id, :uname, '', True)"), 
+    await db.execute(text("INSERT INTO users (id, username, email, is_approved, is_active) VALUES (:id, :uname, '', True, True)"), 
                    {"id": token_user_id, "uname": f"Token: {req.description}"})
     
     res = await db.execute(text("SELECT value FROM serversettings WHERE key = 'DefaultGroupId'"))
@@ -89,6 +89,7 @@ async def restore_token(request: Request, token_id: str, user = Depends(require_
 
     auth_cache.clear()
     tokens_cache.clear()
+    users_cache.clear()
     return {"status": "ok"}
 
 @router.get("/settings")
